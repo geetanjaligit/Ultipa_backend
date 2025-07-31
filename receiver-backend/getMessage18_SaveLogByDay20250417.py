@@ -473,7 +473,8 @@ def receive_data():
     print(f" Raw data length: {len(raw_data)} bytes")
     print(f" The parsed data (parsed_data): {json.dumps(parsed_data, indent=4, ensure_ascii=False) if parsed_data else 'None'}")
     print("parsed_data of type:",type(parsed_data))
-
+    
+    raw_data_for_log = json.dumps(parsed_data, ensure_ascii=False) if parsed_data else ""
     if error_msg:
         print(f" error message: {error_msg}")
 
@@ -483,8 +484,8 @@ def receive_data():
         "timestamp": processing_time_server,  # Use the same timestamp datetime.now().isoformat()
         "headers": headers,
         "data_summary": {
-            "raw_data_length": len(raw_data),
-            "raw_data": raw_data,
+            "raw_data_length": len(raw_data_for_log),
+            "raw_data": raw_data_for_log,
             "parsed_data": parsed_data,
             "parsed_fields": list(parsed_data.keys()) if parsed_data else None
         },
