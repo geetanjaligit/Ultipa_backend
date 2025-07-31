@@ -1,5 +1,5 @@
 [build]
-nixpkgs = ["python3", "python3Packages.pip"]
+nixpkgs = ["python310", "python310Packages.pip"]
 
 [start]
 cmd = "gunicorn getMessage18_SaveLogByDay20250417:app"
