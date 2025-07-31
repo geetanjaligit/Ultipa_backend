@@ -1,8 +1,0 @@
-[build]
-nixpkgs = ["python3", "python3Packages.pip"]
-
-[phases.setup]
-cmds = ["pip install -r requirements.txt"]
-
-[start]
-cmd = "gunicorn getMessage18_SaveLogByDay20250417:app"
