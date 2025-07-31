@@ -137,12 +137,7 @@ def process_data(post_data, processing_time_server, processing_time_utc, request
     :return: Structured DataFrame
     """
     try:
-        # 1. Take out the URL encoded JSON string
-        raw_json = post_data.get("json", "")
-        # 2. Decoding: Restore %xx and +
-        decoded_str = unquote_plus(raw_json)
-        # 3. Parse JSON
-        data = json.loads(decoded_str)
+        data = post_data
 
         quiz_info = data["quiz"]
         quiz_id = quiz_info.get("id", "unknown")  # Get the unique identification of the questionnaire
