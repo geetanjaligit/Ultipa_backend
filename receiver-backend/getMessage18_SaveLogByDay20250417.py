@@ -137,7 +137,12 @@ def process_data(post_data, processing_time_server, processing_time_utc, request
     :return: Structured DataFrame
     """
     try:
-        data = post_data
+        # 1. Take out the URL encoded JSON string
+        raw_json = post_data.get("json", "")
+        # 2. Decoding: Restore %xx and +
+        decoded_str = unquote_plus(raw_json)
+        # 3. Parse JSON
+        data = json.loads(decoded_str)
 
         quiz_info = data["quiz"]
         quiz_id = quiz_info.get("id", "unknown")  # Get the unique identification of the questionnaire
@@ -281,8 +286,7 @@ def process_data(post_data, processing_time_server, processing_time_utc, request
 
 
 # ================== Flask routing processing ==================
-# Add strict_slashes=False to handle URLs that may or may not have a trailing slash
-@app.route('/receive5001', methods=['POST'], strict_slashes=False) #When any HTTP POST request reaches http://server address:POST/receive, Flask will automatically parse the request data, call the receive_data() function to process the request and return the response.
+@app.route('/receive5001', methods=['POST']) #When any HTTP POST request reaches http://server address:POST/receive, Flask will automatically parse the request data, call the receive_data() function to process the request and return the response.
 def receive_data():
     """The main entrance to receive POST requests"""
     # Generate a unique request ID (UUID4 format)
@@ -301,16 +305,24 @@ def receive_data():
     processing_time_utc = datetime.utcnow().isoformat()
 
     try:
-            # This is the industry-standard way. 
-            # It requires the request to have a 'Content-Type: application/json' header.
-            parsed_data = request.get_json()
-            
-            # If no JSON is sent, or it's empty, raise an error.
-            if not parsed_data:
-                raise ValueError("No JSON data received or body is empty.")
+        # Parsing data in different formats
+        # First try to parse the URL-encoded format
+        qs = parse_qs(raw_data, keep_blank_values=True)
+        if 'json' in qs:
+            parsed_data = {'json': qs['json'][0]}
+        # Otherwise, parse according to Content-Type
+        elif request.content_type == 'application/json':
+            parsed_data = request.get_json() or {}
+        elif request.content_type == 'application/x-www-form-urlencoded':
+            parsed_data = request.form.to_dict()
+        elif request.content_type.startswith('multipart/form-data'):
+            parsed_data = {**request.form.to_dict(), 'files': {k: v.filename for k, v in request.files.items()}}
+        else:
+            parsed_data = {}
 
-            # Now, call your processing function with the clean data
-            df = process_data(parsed_data, processing_time_server, processing_time_utc, request_id)
+        # Structured data processing
+        if parsed_data and "json" in parsed_data:  # Key data verification
+            df = process_data(parsed_data, processing_time_server, processing_time_utc, request_id)  # Pass in time stamp
             csv_writer.append_data(df)
             print(f"{len(df)} data was successfully written to {csv_writer._get_filename()}")
             # --------- Start adding Ultipa database writing code ---------
@@ -473,8 +485,7 @@ def receive_data():
     print(f" Raw data length: {len(raw_data)} bytes")
     print(f" The parsed data (parsed_data): {json.dumps(parsed_data, indent=4, ensure_ascii=False) if parsed_data else 'None'}")
     print("parsed_data of type:",type(parsed_data))
-    
-    raw_data_for_log = json.dumps(parsed_data, ensure_ascii=False) if parsed_data else ""
+
     if error_msg:
         print(f" error message: {error_msg}")
 
@@ -484,8 +495,8 @@ def receive_data():
         "timestamp": processing_time_server,  # Use the same timestamp datetime.now().isoformat()
         "headers": headers,
         "data_summary": {
-            "raw_data_length": len(raw_data_for_log),
-            "raw_data": raw_data_for_log,
+            "raw_data_length": len(raw_data),
+            "raw_data": raw_data,
             "parsed_data": parsed_data,
             "parsed_fields": list(parsed_data.keys()) if parsed_data else None
         },
