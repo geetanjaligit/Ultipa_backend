@@ -1,0 +1,5 @@
+[build]
+nixpkgs = ["python310", "python310Packages.pip"]
+
+[start]
+cmd = "gunicorn api_gateway:app"
