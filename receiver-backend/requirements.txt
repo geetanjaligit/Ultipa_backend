@@ -3,5 +3,5 @@ pandas
 uuid
 pytz
 timezonefinder
-ultipa
+ultipa==5.0.6
 gunicorn

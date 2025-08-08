@@ -1,6 +1,6 @@
 flask
 flask-cors
-ultipa
+ultipa==5.0.6
 pandas
 python-dateutil
 gunicorn
