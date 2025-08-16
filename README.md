@@ -64,7 +64,7 @@ pip install -r requirements.txt
 
 ### 3. Configure Environment Variables
 The application uses environment variables for database credentials. Create a .env file in the project root and add the following:
-# .env file
+### .env file
 ```bash
 ULTIPA_HOST="your_ultipa_host:port"
 ULTIPA_USERNAME="your_ultipa_username"
