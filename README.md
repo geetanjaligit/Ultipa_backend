@@ -49,13 +49,13 @@ cd Ultipa-Backend
 
 ### 2. Install Dependencies
 It is highly recommended to use a virtual environment.
-# Create and activate a virtual environment (optional but recommended)
+### Create and activate a virtual environment (optional but recommended)
 ```bash
 python -m venv venv
 source venv/bin/activate  # On Windows use `venv\Scripts\activate`
 ```
 
-# Install required Python packages
+### Install required Python packages
 ```bash
 pip install -r requirements.txt
 ```
