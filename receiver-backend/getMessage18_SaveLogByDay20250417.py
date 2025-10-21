@@ -624,9 +624,9 @@ def receive_heatmap_data():
             from ultipa import Connection, UltipaConfig
             graph = "test"
             ultipaConfig = UltipaConfig()
-            ultipaConfig.hosts = [os.environ.get("ULTIPA_HOST","114.242.60.100:10104")]
-            ultipaConfig.username = os.environ.get("ULTIPA_USERNAME","root")
-            ultipaConfig.password = os.environ.get("ULTIPA_PASSWORD","Zo1xy3SvSVFYKmapSpJ")
+            ultipaConfig.hosts = [os.environ.get("ULTIPA_HOST")]
+            ultipaConfig.username = os.environ.get("ULTIPA_USERNAME")
+            ultipaConfig.password = os.environ.get("ULTIPA_PASSWORD")
             ultipaConfig.defaultGraph = graph
             ultipaConfig.heartBeat = 0
             conn = Connection.NewConnection(defaultConfig=ultipaConfig)

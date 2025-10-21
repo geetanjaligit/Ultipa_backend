@@ -5,6 +5,7 @@ from flask_cors import CORS
 from api_team_records import fetch_team_records
 from api_community_records import fetch_community_records
 from analysis7_readDB_response import fetch_user_records
+from api_heatmap_records import fetch_heatmap_records_by_email
 
 app = Flask(__name__)
 CORS(app)
@@ -64,6 +65,22 @@ def records_handler():
             return jsonify({
                 "matched_records": records,
                 "total_records": len(records)
+            })
+        
+        elif record_type == 'heatmap':
+            email = data.get('email')
+            if not email:
+                return jsonify({'error': 'Missing email'}), 400
+            
+            records = fetch_heatmap_records_by_email(email)
+            
+            if not records:
+                return jsonify({'error': 'No heatmap data found for this user'}), 404
+
+            return jsonify({
+                "email": email,
+                "total_records": len(records),
+                "records": records
             })
 
         else:

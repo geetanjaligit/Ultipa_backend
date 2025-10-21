@@ -27,9 +27,9 @@ CORS(app)
 def get_connection():
     """Establish connection to Ultipa"""
     ultipaConfig = UltipaConfig()
-    ultipaConfig.hosts = [os.environ.get("ULTIPA_HOST", "114.242.60.100:10104")]
-    ultipaConfig.username = os.environ.get("ULTIPA_USERNAME", "root")
-    ultipaConfig.password = os.environ.get("ULTIPA_PASSWORD", "Zo1xy3SvSVFYKmapSpJ")
+    ultipaConfig.hosts = [os.environ.get("ULTIPA_HOST")]
+    ultipaConfig.username = os.environ.get("ULTIPA_USERNAME")
+    ultipaConfig.password = os.environ.get("ULTIPA_PASSWORD")
     ultipaConfig.defaultGraph = "test"
     ultipaConfig.heartBeat = 0
     return Connection.NewConnection(defaultConfig=ultipaConfig)
