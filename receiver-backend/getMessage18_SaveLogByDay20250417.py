@@ -46,6 +46,10 @@ LOG_DIR = os.environ.get("KEN_LOG_DIR", os.path.join(os.path.dirname(__file__), 
 CSV_DIR = os.environ.get("KEN_DATA_DIR", os.path.join(os.path.dirname(__file__), "logs/data"))
 PORT = 5001  #Service Port
 
+HEATMAP_CATEGORIES = [
+    "Origin", "Relevance", "Strategy", "Operations", "Function", "Feedback"
+]
+
 # ================== File Writer Base Class ==================
 class DailyFileHandler:  
     """Split files by day processing base classes""" 
@@ -73,7 +77,7 @@ class DailyFileHandler:
         return False
 
 # ================== CSV Writer ==================
-class DailyCsvWriter(DailyFileHandler):  # Class name modification
+class DailyCsvWriter(DailyFileHandler):  
     """CSV writer divided by day"""  
 
     def __init__(self):
@@ -100,9 +104,26 @@ class DailyCsvWriter(DailyFileHandler):  # Class name modification
             self._init_file()
         df.to_csv(self._get_filename(), mode='a', header=False, index=False)
 
+class DailyHeatmapCsvWriter(DailyFileHandler):
+    def __init__(self):
+        super().__init__("heatmap_responses", CSV_DIR)
+        self._init_file()
+
+    def _init_file(self):
+        if not os.path.exists(self._get_filename()):
+            columns = [
+                "request_id", "timestamp_utc", "email", "visitor_id", "quiz_id", "quiz_title"
+            ] + HEATMAP_CATEGORIES
+            pd.DataFrame(columns=columns).to_csv(self._get_filename(), index=False)
+    
+    def append_data(self, data_dict):
+        if self.check_day():
+            self._init_file()
+        df = pd.DataFrame([data_dict])
+        df.to_csv(self._get_filename(), mode='a', header=False, index=False)
 
 # ================== Log Writer ==================
-class DailyLogWriter(DailyFileHandler):  # Class name modification
+class DailyLogWriter(DailyFileHandler):  
     """Log writer divided by day"""  
 
     def __init__(self):
@@ -127,7 +148,7 @@ class DailyLogWriter(DailyFileHandler):  # Class name modification
 # ================== Flask application initialization ==================
 app = Flask(__name__)
 
-# ================== Data processing functions ==================
+# ================== Data processing functions (Wellbeing Quiz) ==================
 def process_data(post_data, processing_time_server, processing_time_utc, request_id):
     """
     Extract structured information from raw POST data
@@ -285,7 +306,47 @@ def process_data(post_data, processing_time_server, processing_time_utc, request
         raise ValueError(f"Data processing failed: {str(e)}")
 
 
-# ================== Flask routing processing ==================
+# ================== DATA PROCESSING LOGIC (Heatmap Quiz) ==================
+def process_heatmap_data(post_data, processing_time_utc, request_id):
+    # This function is correct and does not need to change
+    try:
+        # This function expects clean, parsed JSON data, which it will now receive
+        data = post_data
+        
+        quiz_info = data.get("quiz", {})
+        response = data.get("responses", [{}])[0]
+        user_info = response.get("user", {})
+        contact_info = response.get("contact", {})
+        
+        # Extract email from the correct place in the quiz-maker response
+        email = contact_info.get("emails", ["unknown"])[0]
+
+        base_record = {
+            "request_id": request_id,
+            "timestamp_utc": processing_time_utc,
+            "email": email,
+            "visitor_id": user_info.get("visitorID", "unknown"),
+            "quiz_id": quiz_info.get("id", "unknown"),
+            "quiz_title": quiz_info.get("title", "unknown")
+        }
+
+        category_scores = response.get("categories", {})
+        json_category_keys = list(category_scores.keys())
+
+        for i, client_category_name in enumerate(HEATMAP_CATEGORIES):
+            if i < len(json_category_keys):
+                json_key = json_category_keys[i]
+                score = category_scores[json_key].get("score", 0)
+                base_record[client_category_name] = score
+            else:
+                base_record[client_category_name] = 0
+        
+        return base_record
+    except Exception as e:
+        raise ValueError(f"Heatmap data processing failed: {str(e)}")
+
+
+# ================== Flask routing processing (Wellbeing Quiz) ==================
 @app.route('/receive5001', methods=['POST']) #When any HTTP POST request reaches http://server address:POST/receive, Flask will automatically parse the request data, call the receive_data() function to process the request and return the response.
 def receive_data():
     """The main entrance to receive POST requests"""
@@ -523,6 +584,163 @@ def receive_data():
         "csv_file": csv_writer._get_filename()
     })
 
+
+# ================== API ENDPOINT (Heatmap Quiz) ==================
+@app.route('/receive-heatmap', methods=['POST'])
+def receive_heatmap_data():
+    request_id = str(uuid.uuid4())
+    heatmap_csv_writer = DailyHeatmapCsvWriter()
+    log_writer = DailyLogWriter()
+    processing_time_utc = datetime.utcnow().isoformat()
+    raw_post_body = request.get_data(as_text=True) # Get the entire raw body as text
+    error_msg = None
+    parsed_data = None
+
+    try:
+        # Step 1: Handle the URL-encoded format, just like the old endpoint
+        qs = parse_qs(raw_post_body, keep_blank_values=True)
+        
+        # Step 2: Check if the 'json' parameter exists
+        if 'json' not in qs:
+            raise ValueError("Required 'json' field missing in URL-encoded payload.")
+        
+        # Step 3: Decode and parse the JSON string from the 'json' parameter
+        json_string = qs['json'][0]
+        decoded_string = unquote_plus(json_string)
+        parsed_data = json.loads(decoded_string) # This is the clean dictionary
+        
+        if not parsed_data:
+            raise ValueError("Parsed JSON data is empty.")
+        
+        # Step 4: Call the processing function with the clean data
+        heatmap_record = process_heatmap_data(parsed_data, processing_time_utc, request_id)
+        
+        # Step 5: Append the single row of data to the new CSV
+        heatmap_csv_writer.append_data(heatmap_record)
+        print(f"📊 Successfully wrote 1 heatmap row to {heatmap_csv_writer._get_filename()}")
+
+        try:
+            # Re-establish connection config
+            from ultipa import Connection, UltipaConfig
+            graph = "test"
+            ultipaConfig = UltipaConfig()
+            ultipaConfig.hosts = [os.environ.get("ULTIPA_HOST","114.242.60.100:10104")]
+            ultipaConfig.username = os.environ.get("ULTIPA_USERNAME","root")
+            ultipaConfig.password = os.environ.get("ULTIPA_PASSWORD","Zo1xy3SvSVFYKmapSpJ")
+            ultipaConfig.defaultGraph = graph
+            ultipaConfig.heartBeat = 0
+            conn = Connection.NewConnection(defaultConfig=ultipaConfig)
+
+            # 🧩 Debugging setup
+            print("✅ Connected to Ultipa host:", ultipaConfig.hosts)
+            print("🧭 Using graph:", ultipaConfig.defaultGraph)
+            
+            # Enable verbose SDK logs (this will print UQL requests/responses)
+            try:
+                conn.setLogLevel("DEBUG")
+                print("🔍 SDK debug logging enabled.")
+            except Exception as log_err:
+                print("⚠️ Could not enable SDK debug logs:", log_err)
+            
+            # Test connection
+            try:
+                test_result = conn.uql("list().graphs()")
+                print("🔗 Connection test successful. Available graphs:", test_result.toDict())
+            except Exception as test_err:
+                print("⚠️ Connection test failed:", test_err)
+
+
+            # 1. Extract key info. We absolutely need a visitorID to proceed.
+            visitorID = str(heatmap_record.get("visitor_id", "unknown"))
+            if not visitorID or visitorID == "unknown":
+                raise ValueError("Cannot process record without a valid visitorID from the payload.")
+            
+            Email = str(heatmap_record.get("email", "unknown")).strip().lower()
+            quiz_id = str(heatmap_record.get("quiz_id", "unknown"))
+            server_time_utc = heatmap_record.get("timestamp_utc")
+            
+            # 2. Check if the visitor already exists in the database.
+            check_visitor_uql = f"find().nodes({{@visitor.visitor_id == '{visitorID}'}}) as v return v"
+            visitor_exists_result = conn.uql(check_visitor_uql)
+            
+            # If the visitor does NOT exist, create them, using the visitorID as the primary _id.
+            if not visitor_exists_result.toDict().get('items'):
+                print(f"Visitor {visitorID} not found. Creating a new visitor node.")
+                conn.uql(f"insert().into(@visitor).nodes({{ _id:'{visitorID}', visitor_id:'{visitorID}', Email:'{Email}' }})")
+            
+            # 3. Upsert the quiz node.
+            conn.uql(f"upsert().into(@quiz).nodes({{ _id:'{quiz_id}', quiz_id:'{quiz_id}' }})")
+            
+            # 4. Prepare the category scores for storage.
+            category_scores_data = {cat: heatmap_record.get(cat, 0) for cat in HEATMAP_CATEGORIES}
+            scores_json_string = json.dumps(category_scores_data, ensure_ascii=False)
+            scores_encoded = base64.b64encode(scores_json_string.encode('utf-8')).decode('utf-8')
+            
+            # 5. Insert the new @record node.
+            if quiz_id and quiz_id != "unknown":
+                # Fetch the real email from the database to ensure the record is accurate.
+                get_email_uql = f"find().nodes({{@visitor.visitor_id == '{visitorID}'}}) as v return v.Email"
+                email_result = conn.uql(get_email_uql)
+                # Safely extract the email from the nested response
+                db_email_list = email_result.toDict().get('items', {}).get('v', [])
+                db_email = db_email_list[0][0] if db_email_list and db_email_list[0] else "unknown"
+            
+                uql_query=f"""insert().into(@record).nodes({{
+                       _id:'{request_id}', record_id:'{request_id}', visitor_id:'{visitorID}', 
+                       Email:'{db_email}', quiz_id:'{quiz_id}', 
+                       server_time:'{server_time_utc}',
+                       parsed_data_encoded:'{scores_encoded}'
+                    }})"""
+                result = conn.uql(uql_query)
+                print("📥 UQL executed:", uql_query)
+                print("📤 Ultipa response:", result.toDict())
+
+                # 6. Link the new record to the visitor and quiz using direct edge insertion
+                try:
+                    # Visitor → Record edge
+                    visitor_edge_uql = f"insert().into(@has).edges({{ _from:'{visitorID}', _to:'{request_id}', id:'{request_id}_visitor' }})"
+                    visitor_edge_result = conn.uql(visitor_edge_uql)
+                    print("🔗 Visitor→Record edge result:", visitor_edge_result.toDict())
+                
+                    # Quiz → Record edge
+                    quiz_edge_uql = f"insert().into(@has).edges({{ _from:'{quiz_id}', _to:'{request_id}', id:'{request_id}_quiz' }})"
+                    quiz_edge_result = conn.uql(quiz_edge_uql)
+                    print("🔗 Quiz→Record edge result:", quiz_edge_result.toDict())
+                
+                except Exception as edge_err:
+                    print("❌ Edge creation error:", edge_err)
+
+
+                confirm_query = f"find().nodes({{@record.record_id == '{request_id}'}}) return @record"
+                confirm_result = conn.uql(confirm_query)
+                print("🔍 Confirm record inserted:", confirm_result.toDict())
+
+
+                print(f"💾 Successfully wrote and linked heatmap record {request_id} to Ultipa DB.")
+            else:
+                raise ValueError("Cannot create record without a valid quiz_id.")
+            
+            
+        except Exception as db_e:
+            import traceback
+            print("❌ DB insertion error:", db_e)
+            traceback.print_exc()
+
+    except Exception as e:
+        error_msg = f"Processing error: {str(e)}"
+        app.logger.error(str(e))
+
+    log_entry = { "request_id": request_id, "timestamp": processing_time_utc, "endpoint": "/receive-heatmap", "raw_payload": raw_post_body, "parsed_json_from_payload": parsed_data, "error": error_msg }
+    log_writer.write_entry(log_entry)
+
+    if error_msg:
+        print(f"❌ Error on /receive-heatmap: {error_msg}")
+        return jsonify({"status": "error", "message": error_msg}), 400
+        
+    return jsonify({"status": "success", "request_id": request_id})
+
+
+
 # ================== Start the service ==================
 if __name__ == '__main__':
     env = detect_environment()
@@ -540,9 +758,11 @@ if __name__ == '__main__':
         exit(1)
     else:
         # The development environment starts a server with warnings
-        print(f"\n The development server has been started：http://localhost:{PORT}/receive5001")
+        print(f"\n The development server has been started.")
+        print(f"   -> Wellbeing Quiz Endpoint: http://localhost:{PORT}/receive5001")
+        print(f"   -> Heatmap Quiz Endpoint:   http://localhost:{PORT}/receive-heatmap") 
         print(" Note: It is normal to see WARNING, which is the expected behavior of the development server.")
-        app.run(host='0.0.0.0', port=PORT, debug=False)  # The production environment should set debug=False. If debug=True, the debug mode will be enabled for easy debugging.
+        app.run(host='0.0.0.0', port=PORT, debug=False)# The production environment should set debug=False. If debug=True, the debug mode will be enabled for easy debugging.
 
 
 """
